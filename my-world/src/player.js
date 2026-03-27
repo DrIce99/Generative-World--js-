@@ -24,7 +24,7 @@ export class Player {
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
                 this.rotationY -= e.movementX * 0.002;
-                this.rotationX -= e.movementY * 0.002;
+                this.rotationX += e.movementY * 0.002;
                 // Limita la rotazione verticale per non capovolgere la camera
                 this.rotationX = Math.max(-Math.PI/3, Math.min(Math.PI/4, this.rotationX));
             }
@@ -44,7 +44,7 @@ export class Player {
     }
 
     update() {
-        const speed = 0.4;
+        const speed = 0.15;
         const gravity = -0.015;
         const maxSlope = 0.7;
         const jumpForce = 0.25;
@@ -62,13 +62,7 @@ export class Player {
 
         // --- CONTROLLO PENDENZA ---
         const nextPos = this.mesh.position.clone().add(moveVec);
-        const groundData = getPreciseHeightWithNormal(nextPos.x, nextPos.z);
-        
-        // Se la normale Y è troppo bassa, il prisma è troppo ripido
-        if (groundData.normal.y > maxSlope) {
-            this.mesh.position.x = nextPos.x;
-            this.mesh.position.z = nextPos.z;
-        }
+        const groundData = getPreciseHeight(nextPos.x, nextPos.z);
 
         this.mesh.rotation.y = this.rotationY;
 

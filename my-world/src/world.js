@@ -12,7 +12,7 @@ export const RENDER_DISTANCE = 2;
 const POINTS_PER_CHUNK = 200;
 const SAMPLES_PER_EDGE = 10;   // Quanti punti fissi mettere sui bordi
 
-const loadedChunks = new Map();
+export const loadedChunks = new Map();
 export const visitedChunks = new Map();
 export const worldDataMap = new Map();
 
@@ -45,17 +45,17 @@ export const getHeight = (x, z) => {
 
 export function createWorld(sceneGroup) {
     // --- 1. ACQUA ---
-    const waterGeo = new THREE.PlaneGeometry(SIZE, SIZE);
-    const waterMat = new THREE.MeshPhongMaterial({
-        color: 0x00aaff,
-        transparent: true,
-        opacity: 0.6,
-        shininess: 80
-    });
-    const water = new THREE.Mesh(waterGeo, waterMat);
-    water.rotation.x = -Math.PI / 2;
-    water.position.y = 3.5;
-    sceneGroup.add(water);
+    // const waterGeo = new THREE.PlaneGeometry(SIZE, SIZE);
+    // const waterMat = new THREE.MeshPhongMaterial({
+    //     color: 0x00aaff,
+    //     transparent: true,
+    //     opacity: 0.6,
+    //     shininess: 80
+    // });
+    // const water = new THREE.Mesh(waterGeo, waterMat);
+    // water.rotation.x = -Math.PI / 2;
+    // water.position.y = 3.5;
+    // sceneGroup.add(water);
 
     // --- 2. TERRENO ---
     const points = [];
@@ -71,7 +71,7 @@ export function createWorld(sceneGroup) {
         const pIndex = delaunay.triangles[i];
         const x = points[pIndex][0];
         const z = points[pIndex][1];
-        const y = getPreciseHeight(x, z);
+        const y = getPreciseHeight(x, z).height;
         vertices.push(x, y, z);
         const c = new THREE.Color(getBiomeData(x, z).color);
         colors.push(c.r, c.g, c.b);
@@ -155,6 +155,10 @@ export function getPreciseHeight(x, z) {
         if (isPointInTriangle(x, z, tri.p1, tri.p2, tri.p3)) {
             const h = barycentricInterpolation(x, z, tri.p1, tri.p2, tri.p3);
             
+            if (!isFinite(h)) {
+                return { height: getHeight(x, z), normal: new THREE.Vector3(0, 1, 0) };
+            }
+
             // Calcolo veloce della normale del triangolo
             const vA = new THREE.Vector3(tri.p1.x, tri.p1.y, tri.p1.z);
             const vB = new THREE.Vector3(tri.p2.x, tri.p2.y, tri.p2.z);
@@ -179,9 +183,15 @@ function isPointInTriangle(px, pz, p1, p2, p3) {
 
 function barycentricInterpolation(px, pz, p1, p2, p3) {
     const det = (p2.z - p3.z) * (p1.x - p3.x) + (p3.x - p2.x) * (p1.z - p3.z);
+
+    if (Math.abs(det) < 1e-6) {
+        return p1.y; // fallback safe
+    }
+
     const l1 = ((p2.z - p3.z) * (px - p3.x) + (p3.x - p2.x) * (pz - p3.z)) / det;
     const l2 = ((p3.z - p1.z) * (px - p3.x) + (p1.x - p3.x) * (pz - p3.z)) / det;
     const l3 = 1 - l1 - l2;
+
     return l1 * p1.y + l2 * p2.y + l3 * p3.y;
 }
 
@@ -269,7 +279,7 @@ function createChunk(cx, cz) {
         const pIdx = delaunay.triangles[i];
         const x = points[pIdx][0];
         const z = points[pIdx][1];
-        const y = getPreciseHeight(x, z);
+        const y = getPreciseHeight(x, z).height;
 
         vertices.push(x, y, z);
         const c = new THREE.Color(getBiomeData(x, z).color);
@@ -296,6 +306,7 @@ function createChunk(cx, cz) {
     // --- C. ACQUA DEL CHUNK ---
     const waterGeo = new THREE.PlaneGeometry(CHUNK_SIZE - 0.05, CHUNK_SIZE - 0.05);
     const water = new THREE.Mesh(waterGeo, waterMat);
+    water.userData.isWater = true;
     water.rotation.x = -Math.PI / 2;
     // Posizioniamo l'acqua al centro del chunk
     water.position.set(offsetX + CHUNK_SIZE / 2, 3.5, offsetZ + CHUNK_SIZE / 2);
@@ -310,9 +321,11 @@ function createChunk(cx, cz) {
         
         const cx_obj = (points[i1][0] + points[i2][0] + points[i3][0]) / 3;
         const cz_obj = (points[i1][1] + points[i2][1] + points[i3][1]) / 3;
-        const cy_obj = (getPreciseHeight(points[i1][0], points[i1][1]) + 
-                        getPreciseHeight(points[i2][0], points[i2][1]) + 
-                        getPreciseHeight(points[i3][0], points[i3][1])) / 3;
+        const cy_obj = (
+            getPreciseHeight(points[i1][0], points[i1][1]).height +
+            getPreciseHeight(points[i2][0], points[i2][1]).height +
+            getPreciseHeight(points[i3][0], points[i3][1]).height
+        ) / 3;
 
         const biome = getBiomeData(cx_obj, cz_obj);
 
