@@ -7,12 +7,14 @@ import { createTree, createRock } from './objects.js';
 const noise2D = createNoise2D();
 const biomeNoise = createNoise2D();
 
-const CHUNK_SIZE = 50;
+export const CHUNK_SIZE = 50;
 export const RENDER_DISTANCE = 2;
 const POINTS_PER_CHUNK = 200;
 const SAMPLES_PER_EDGE = 10;   // Quanti punti fissi mettere sui bordi
 
 const loadedChunks = new Map();
+export const visitedChunks = new Map();
+export const worldDataMap = new Map();
 
 export let worldTriangles = [];
 
@@ -207,6 +209,21 @@ function createChunk(cx, cz) {
     const chunkGroup = new THREE.Group();
     const offsetX = cx * CHUNK_SIZE;
     const offsetZ = cz * CHUNK_SIZE;
+
+    const resolution = 10; // 10x10 punti di dettaglio per ogni chunk
+    const gridData = [];
+    const step = CHUNK_SIZE / resolution;
+
+    for (let i = 0; i < resolution; i++) {
+        for (let j = 0; j < resolution; j++) {
+            const sampleX = offsetX + i * step;
+            const sampleZ = offsetZ + j * step;
+            const h = getHeight(sampleX, sampleZ);
+            const b = getBiomeData(sampleX, sampleZ);
+            gridData.push({ h, color: b.color });
+        }
+    }
+    worldDataMap.set(`${cx},${cz}`, gridData);
 
     // 1. AGGIUNGI PUNTI SUI BORDI (Per farli combaciare)
     for (let i = 0; i <= SAMPLES_PER_EDGE; i++) {
