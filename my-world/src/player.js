@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getHeight } from './world.js';
+import { getPreciseHeight } from './world.js';
 
 const waterLevel = 3.5;
 
@@ -15,6 +15,7 @@ export class Player {
         this.mesh.add(body);
         scene.add(this.mesh);
 
+        this.velocityV = 0;
         this.rotationY = 0; // Rotazione orizzontale
         this.rotationX = 0; // Rotazione verticale (su/giù)
 
@@ -44,6 +45,7 @@ export class Player {
     update() {
         const speed = 0.4;
         const gravity = -0.015;
+        const jumpForce = 0.25;
 
         const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotationY);
         const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotationY);
@@ -60,12 +62,15 @@ export class Player {
         this.velocityV += gravity;
         this.mesh.position.y += this.velocityV;
 
-        const groundH = getHeight(this.mesh.position.x, this.mesh.position.z);
-        const finalSurface = Math.max(groundH, waterLevel);
+        const groundH = getPreciseHeight(this.mesh.position.x, this.mesh.position.z);
 
-        if (this.mesh.position.y <= finalSurface) {
-            this.mesh.position.y = finalSurface;
+        if (this.mesh.position.y <= groundH) {
+            this.mesh.position.y = groundH;
             this.velocityV = 0;
+
+            if (this.keys[' ']) {
+                this.velocityV = jumpForce;
+            }
         }
     }
 }
