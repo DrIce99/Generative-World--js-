@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createWorld } from './world.js';
+import { createWorld, updateWorld } from './world.js';
 import { Player } from './player.js';
 
 const scene = new THREE.Scene();
@@ -25,6 +25,8 @@ scene.add(new THREE.AmbientLight(0x404040, 0.8));
 function animate() {
     requestAnimationFrame(animate);
     player.update();
+
+    updateWorld(player.mesh.position, sceneGroup);
 
     const dist = 15;
 

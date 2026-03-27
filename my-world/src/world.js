@@ -1,15 +1,27 @@
 import * as THREE from 'three';
 import Delaunator from 'delaunator';
 import { createNoise2D } from 'simplex-noise';
+
 import { createTree, createRock } from './objects.js';
 
 const noise2D = createNoise2D();
 const biomeNoise = createNoise2D();
 
+const CHUNK_SIZE = 50;
+export const RENDER_DISTANCE = 2;
+const POINTS_PER_CHUNK = 200;
+const SAMPLES_PER_EDGE = 10;   // Quanti punti fissi mettere sui bordi
+
+const loadedChunks = new Map();
+
 export let worldTriangles = [];
 
 export const SIZE = 150;
 const NUM_POINTS = 800;
+
+const terrainMat = new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true });
+const waterMat = new THREE.MeshPhongMaterial({ color: 0x00aaff, transparent: true, opacity: 0.6, shininess: 80 });
+const wireMat = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0.15 });
 
 export const getBiomeData = (x, z) => {
     const v = biomeNoise(x * 0.01, z * 0.01);
@@ -55,7 +67,7 @@ export function createWorld(sceneGroup) {
         const pIndex = delaunay.triangles[i];
         const x = points[pIndex][0];
         const z = points[pIndex][1];
-        const y = getHeight(x, z);
+        const y = getPreciseHeight(x, z);
         vertices.push(x, y, z);
         const c = new THREE.Color(getBiomeData(x, z).color);
         colors.push(c.r, c.g, c.b);
@@ -81,7 +93,7 @@ export function createWorld(sceneGroup) {
     });
     const wireframe = new THREE.Mesh(geometry, wireframeMat);
     wireframe.scale.set(1.001, 1.001, 1.001);
-    terrain.add(wireframe);
+    // terrain.add(wireframe);
 
     worldTriangles = [];
 
@@ -99,9 +111,9 @@ export function createWorld(sceneGroup) {
         const v2 = { x: points[i2][0], z: points[i2][1] };
         const v3 = { x: points[i3][0], z: points[i3][1] };
 
-        const h1 = getHeight(v1.x, v1.z);
-        const h2 = getHeight(v2.x, v2.z);
-        const h3 = getHeight(v3.x, v3.z);
+        const h1 = getPreciseHeight(v1.x, v1.z);
+        const h2 = getPreciseHeight(v2.x, v2.z);
+        const h3 = getPreciseHeight(v3.x, v3.z);
 
         // Salviamo i dati dei vertici per ogni triangolo
         worldTriangles.push({
@@ -157,4 +169,131 @@ function barycentricInterpolation(px, pz, p1, p2, p3) {
     const l2 = ((p3.z - p1.z) * (px - p3.x) + (p1.x - p3.x) * (pz - p3.z)) / det;
     const l3 = 1 - l1 - l2;
     return l1 * p1.y + l2 * p2.y + l3 * p3.y;
+}
+
+export function updateWorld(playerPos, sceneGroup) {
+    const pX = Math.floor(playerPos.x / CHUNK_SIZE);
+    const pZ = Math.floor(playerPos.z / CHUNK_SIZE);
+
+    const activeKeys = new Set();
+
+    for (let x = -RENDER_DISTANCE; x <= RENDER_DISTANCE; x++) {
+        for (let z = -RENDER_DISTANCE; z <= RENDER_DISTANCE; z++) {
+            const key = `${pX + x},${pZ + z}`;
+            activeKeys.add(key);
+            if (!loadedChunks.has(key)) {
+                const chunk = createChunk(pX + x, pZ + z);
+                sceneGroup.add(chunk);
+                loadedChunks.set(key, chunk);
+            }
+        }
+    }
+
+    // PULIZIA MEMORIA: Rimuovi chunk lontani
+    for (const [key, chunkGroup] of loadedChunks) {
+        if (!activeKeys.has(key)) {
+            sceneGroup.remove(chunkGroup);
+            chunkGroup.traverse((obj) => {
+                if (obj.isMesh) obj.geometry.dispose();
+                // Non facciamo il dispose dei materiali qui perché sono condivisi!
+            });
+            loadedChunks.delete(key);
+        }
+    }
+}
+
+function createChunk(cx, cz) {
+    const points = [];
+    const chunkGroup = new THREE.Group();
+    const offsetX = cx * CHUNK_SIZE;
+    const offsetZ = cz * CHUNK_SIZE;
+
+    // 1. AGGIUNGI PUNTI SUI BORDI (Per farli combaciare)
+    for (let i = 0; i <= SAMPLES_PER_EDGE; i++) {
+        const t = (i / SAMPLES_PER_EDGE) * CHUNK_SIZE;
+        points.push([offsetX, offsetZ + t]);              // Ovest
+        points.push([offsetX + CHUNK_SIZE, offsetZ + t]); // Est
+        points.push([offsetX + t, offsetZ]);              // Nord
+        points.push([offsetX + t, offsetZ + CHUNK_SIZE]); // Sud
+    }
+
+    // 2. AGGIUNGI PUNTI CASUALI INTERNI
+    for (let i = 0; i < POINTS_PER_CHUNK; i++) {
+        points.push([
+            offsetX + Math.random() * CHUNK_SIZE,
+            offsetZ + Math.random() * CHUNK_SIZE
+        ]);
+    }
+
+    const delaunay = Delaunator.from(points);
+    const vertices = [];
+    const colors = [];
+
+    // 3. COSTRUISCI MESH
+    for (let i = 0; i < delaunay.triangles.length; i++) {
+        const pIdx = delaunay.triangles[i];
+        const x = points[pIdx][0];
+        const z = points[pIdx][1];
+        const y = getPreciseHeight(x, z);
+
+        vertices.push(x, y, z);
+        const c = new THREE.Color(getBiomeData(x, z).color);
+        colors.push(c.r, c.g, c.b);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geo, terrainMat);
+    chunkGroup.add(mesh);
+
+    // 2. Creiamo una mesh che usa la STESSA geometria del terreno
+    const wireframe = new THREE.Mesh(geo, wireMat);
+
+    // 3. Trick del "Z-fighting": lo scagliamo leggermente più grande
+    wireframe.scale.set(1.0005, 1.0005, 1.0005);
+
+    // 4. Lo aggiungiamo al gruppo del chunk
+    chunkGroup.add(wireframe);
+
+    // --- C. ACQUA DEL CHUNK ---
+    const waterGeo = new THREE.PlaneGeometry(CHUNK_SIZE - 0.05, CHUNK_SIZE - 0.05);
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    water.rotation.x = -Math.PI / 2;
+    // Posizioniamo l'acqua al centro del chunk
+    water.position.set(offsetX + CHUNK_SIZE / 2, 3.5, offsetZ + CHUNK_SIZE / 2);
+    chunkGroup.add(water);
+
+    // --- D. OGGETTI (ALBERI E ROCCE) ---
+    // Usiamo una logica di probabilità basata sul noise del bioma nel chunk
+    for (let i = 0; i < delaunay.triangles.length; i += 3) {
+        const i1 = delaunay.triangles[i];
+        const i2 = delaunay.triangles[i+1];
+        const i3 = delaunay.triangles[i+2];
+        
+        const cx_obj = (points[i1][0] + points[i2][0] + points[i3][0]) / 3;
+        const cz_obj = (points[i1][1] + points[i2][1] + points[i3][1]) / 3;
+        const cy_obj = (getPreciseHeight(points[i1][0], points[i1][1]) + 
+                        getPreciseHeight(points[i2][0], points[i2][1]) + 
+                        getPreciseHeight(points[i3][0], points[i3][1])) / 3;
+
+        const biome = getBiomeData(cx_obj, cz_obj);
+
+        if (cy_obj > 4.0) { // Solo fuori dall'acqua
+            const rand = Math.random();
+            if (rand < biome.treeProb) {
+                const tree = createTree();
+                tree.position.set(cx_obj, cy_obj, cz_obj);
+                chunkGroup.add(tree);
+            } else if (rand < biome.treeProb + biome.rockProb) {
+                const rock = createRock();
+                rock.position.set(cx_obj, cy_obj, cz_obj);
+                chunkGroup.add(rock);
+            }
+        }
+    }
+
+    return chunkGroup;
 }
