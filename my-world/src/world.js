@@ -25,6 +25,8 @@ const terrainMat = new THREE.MeshPhongMaterial({ vertexColors: true, flatShading
 const waterMat = new THREE.MeshPhongMaterial({ color: 0x00aaff, transparent: true, opacity: 0.6, shininess: 80 });
 const wireMat = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0.15 });
 
+const chunkQueue = []; // Coda dei chunk da generare
+
 export const getBiomeData = (x, z) => {
     const v = biomeNoise(x * 0.01, z * 0.01);
     if (v < -0.3) return { type: 'OCEANO', heightMult: 0.2, color: 0x3366ff, treeProb: 0 };
@@ -150,12 +152,22 @@ export function createWorld(sceneGroup) {
 // funzione per l'altezza precisa sulla superficie
 export function getPreciseHeight(x, z) {
     for (const tri of worldTriangles) {
-        // Funzione matematica: il punto (x,z) è dentro questo triangolo?
         if (isPointInTriangle(x, z, tri.p1, tri.p2, tri.p3)) {
-            return barycentricInterpolation(x, z, tri.p1, tri.p2, tri.p3);
+            const h = barycentricInterpolation(x, z, tri.p1, tri.p2, tri.p3);
+            
+            // Calcolo veloce della normale del triangolo
+            const vA = new THREE.Vector3(tri.p1.x, tri.p1.y, tri.p1.z);
+            const vB = new THREE.Vector3(tri.p2.x, tri.p2.y, tri.p2.z);
+            const vC = new THREE.Vector3(tri.p3.x, tri.p3.y, tri.p3.z);
+            const normal = new THREE.Vector3().crossVectors(
+                vB.clone().sub(vA), 
+                vC.clone().sub(vA)
+            ).normalize();
+
+            return { height: h, normal: normal };
         }
     }
-    return getHeight(x, z); // Fallback al noise se fuori dai triangoli
+    return { height: getHeight(x, z), normal: new THREE.Vector3(0, 1, 0) };
 }
 
 function isPointInTriangle(px, pz, p1, p2, p3) {
@@ -183,12 +195,18 @@ export function updateWorld(playerPos, sceneGroup) {
         for (let z = -RENDER_DISTANCE; z <= RENDER_DISTANCE; z++) {
             const key = `${pX + x},${pZ + z}`;
             activeKeys.add(key);
-            if (!loadedChunks.has(key)) {
-                const chunk = createChunk(pX + x, pZ + z);
-                sceneGroup.add(chunk);
-                loadedChunks.set(key, chunk);
+            if (!loadedChunks.has(key) && !chunkQueue.includes(key)) {
+                chunkQueue.push(key); // Aggiungi alla lista d'attesa
             }
         }
+    }
+
+    if (chunkQueue.length > 0) {
+        const nextKey = chunkQueue.shift();
+        const [cx, cz] = nextKey.split(',').map(Number);
+        const chunk = createChunk(cx, cz);
+        sceneGroup.add(chunk);
+        loadedChunks.set(nextKey, chunk);
     }
 
     // PULIZIA MEMORIA: Rimuovi chunk lontani

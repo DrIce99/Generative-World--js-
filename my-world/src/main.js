@@ -35,20 +35,28 @@ sun.position.set(50, 100, 50);
 scene.add(sun);
 scene.add(new THREE.AmbientLight(0x404040, 0.8));
 
-function animate() {
+function animate(time) {
     requestAnimationFrame(animate);
+
+    loadedChunks.forEach(chunkGroup => {
+        const water = chunkGroup.children.find(c => c.isMesh && c.geometry.type === 'PlaneGeometry');
+        if (water) {
+            water.position.y = 3.5 + Math.sin(time * 0.002 + water.position.x) * 0.2;
+        }
+    });
+
     player.update();
 
     updateWorld(player.mesh.position, sceneGroup);
 
     drawMinimap(player);
 
-    const dist = 15;
+    const dist = 6;
 
     // Calcoliamo la posizione relativa basandoci sulle rotazioni X e Y del mouse
     const relativeCameraOffset = new THREE.Vector3(
         Math.sin(player.rotationY) * Math.cos(player.rotationX) * dist,
-        Math.sin(player.rotationX) * -dist + 5, // +5 per tenerla un po' alta
+        Math.sin(player.rotationX) * dist + 2, // Abbassata anche l'altezza (era 5)
         Math.cos(player.rotationY) * Math.cos(player.rotationX) * dist
     );
 
