@@ -38,7 +38,7 @@ const ambientLight = new THREE.AmbientLight(0x404040, 0.8);
 scene.add(ambientLight);
 
 let dayTime = 0; 
-const dayDuration = 0.0005;
+const dayDuration = 0.00005;
 
 const sunGeo = new THREE.SphereGeometry(10, 16, 16); // Leggermente più grandi
 const sunMat = new THREE.MeshBasicMaterial({ color: 0xffdd00 });

@@ -1,9 +1,13 @@
 import * as THREE from 'three';
-import { getPreciseHeight } from './world.js';
+import { getPreciseHeight, getNearbyTriangles } from './world.js';
+import { step } from 'three/src/nodes/math/MathNode.js';
 
 const waterLevel = 3.5;
+const radius = 0.3;
+const height = 1.0;
 
 export class Player {
+
     constructor(scene, camera) {
         this.camera = camera;
         this.mesh = new THREE.Group();
@@ -26,7 +30,7 @@ export class Player {
                 this.rotationY -= e.movementX * 0.002;
                 this.rotationX += e.movementY * 0.002;
                 // Limita la rotazione verticale per non capovolgere la camera
-                this.rotationX = Math.max(-Math.PI/3, Math.min(Math.PI/4, this.rotationX));
+                this.rotationX = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, this.rotationX));
             }
         });
 
@@ -46,40 +50,76 @@ export class Player {
     update() {
         const speed = 0.15;
         const gravity = -0.015;
-        const maxSlope = 0.7;
         const jumpForce = 0.25;
 
+        const playerRadius = 0.3;
+        const playerHeight = 1.0;
+        const maxSlope = 0.7;
+
+        // Direzioni
         const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotationY);
         const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotationY);
 
-        let moveVec = new THREE.Vector3(0,0,0);
-        if (this.keys.w) this.mesh.position.add(forward.multiplyScalar(speed));
-        if (this.keys.s) this.mesh.position.add(forward.multiplyScalar(-speed));
-        if (this.keys.a) this.mesh.position.add(right.multiplyScalar(-speed));
-        if (this.keys.d) this.mesh.position.add(right.multiplyScalar(speed));
+        // Movimento input
+        let moveVec = new THREE.Vector3(0, 0, 0);
 
-        moveVec.normalize().multiplyScalar(speed);
+        if (this.keys.w) moveVec.add(forward);
+        if (this.keys.s) moveVec.add(forward.clone().multiplyScalar(-1));
+        if (this.keys.a) moveVec.add(right.clone().multiplyScalar(-1));
+        if (this.keys.d) moveVec.add(right);
 
-        // --- CONTROLLO PENDENZA ---
-        const nextPos = this.mesh.position.clone().add(moveVec);
-        const groundData = getPreciseHeight(nextPos.x, nextPos.z);
+        if (moveVec.length() > 0) {
+            moveVec.normalize().multiplyScalar(speed);
 
-        this.mesh.rotation.y = this.rotationY;
+            const nextPos = this.mesh.position.clone().add(moveVec);
 
-        // Facciamo ruotare il corpo del player verso la direzione della camera (opzionale)
-        this.mesh.rotation.y = this.rotationY;
+            if (!this.collides(nextPos, playerRadius, playerHeight, maxSlope)) {
+                this.mesh.position.copy(nextPos);
+            } else {
+                // prova solo X
+                const tryX = this.mesh.position.clone().add(new THREE.Vector3(moveVec.x, 0, 0));
+                if (!this.collides(tryX, playerRadius, playerHeight, maxSlope)) {
+                    this.mesh.position.x = tryX.x;
+                }
 
-        // Gravità e Salto
+                // prova solo Z
+                const tryZ = this.mesh.position.clone().add(new THREE.Vector3(0, 0, moveVec.z));
+                if (!this.collides(tryZ, playerRadius, playerHeight, maxSlope)) {
+                    this.mesh.position.z = tryZ.z;
+                }
+            }
+        }
+
+        // --- GRAVITÀ ---
         this.velocityV += gravity;
         this.mesh.position.y += this.velocityV;
 
-        const groundH = getPreciseHeight(this.mesh.position.x, this.mesh.position.z);
+        const ground = getPreciseHeight(this.mesh.position.x, this.mesh.position.z);
 
-        if (this.mesh.position.y <= groundData.height) {
-            this.mesh.position.y = groundData.height;
+        if (this.mesh.position.y <= ground.height) {
+            this.mesh.position.y = ground.height;
             this.velocityV = 0;
 
-            if (this.keys[' ']) this.velocityV = 0.2; 
+            if (this.keys[' ']) {
+                this.velocityV = jumpForce;
+            }
         }
+
+        // Rotazione
+        this.mesh.rotation.y = this.rotationY;
+    }
+
+    collides(pos, maxSlope) {
+        const ground = getPreciseHeight(pos.x, pos.z);
+
+        // 1. Blocco Pendenza: se il triangolo è troppo ripido
+        if (ground.normal.y < maxSlope) return true;
+
+        // 2. Blocco Gradino: se il terreno davanti è più alto di 0.4 unità rispetto a dove sono ora
+        // (permette di salire piccoli sbalzi ma non muri)
+        const currentHeight = this.mesh.position.y;
+        if (ground.height - currentHeight > 0.4) return true;
+
+        return false;
     }
 }
